@@ -88,6 +88,10 @@ NeoForge 开发客户端示例：
 
 本项目与 Mojang Studios、Microsoft、NVIDIA、AMD、Iris 项目及 Sodium 项目不存在隶属或官方认可关系。
 
+## 代码签名政策
+
+发布签名的文件范围、来源验证要求和维护者角色见[代码签名政策](CODE_SIGNING_POLICY.md)。[隐私政策](PRIVACY.md)说明本 Mod 不收集遥测数据，也不会在用户未明确要求时向网络系统传输信息。
+
 ## 参与开发
 
 请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [SECURITY.md](SECURITY.md)。当前最需要帮助的方向包括：

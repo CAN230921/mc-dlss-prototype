@@ -84,3 +84,10 @@ published until every bundled runtime has been checked for redistribution.
 
 This project is not affiliated with or endorsed by Mojang Studios, Microsoft,
 NVIDIA, AMD, the Iris project, or the Sodium project.
+
+## Code Signing Policy
+
+Release-signing scope, provenance requirements, and maintainer roles are
+documented in the [Code Signing Policy](CODE_SIGNING_POLICY.md). The project
+[Privacy Policy](PRIVACY.md) confirms that the mod does not collect telemetry
+or transfer data unless the user explicitly requests a network operation.

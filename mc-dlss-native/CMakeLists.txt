@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(mc_dlss_native LANGUAGES CXX)
+project(mc_dlss_native VERSION 0.1.0 LANGUAGES CXX)
 
 include(CTest)
 
@@ -12,6 +12,38 @@ find_package(JNI REQUIRED)
 
 set(STREAMLINE_ROOT "" CACHE PATH "Path to the NVIDIA Streamline SDK")
 set(FIDELITYFX_ROOT "" CACHE PATH "Path to the FidelityFX SDK Kits/FidelityFX directory")
+set(MC_DLSS_VERSION "${PROJECT_VERSION}-alpha.1" CACHE STRING
+    "Product version embedded in project-authored Windows binaries")
+
+if (WIN32)
+    enable_language(RC)
+
+    function(mc_dlss_configure_version_resource target_name original_filename file_description output_variable)
+        set(MC_DLSS_RESOURCE_ORIGINAL_FILENAME "${original_filename}")
+        set(MC_DLSS_RESOURCE_FILE_DESCRIPTION "${file_description}")
+        set(MC_DLSS_RESOURCE_INTERNAL_NAME "${target_name}")
+        set(resource_output "${CMAKE_CURRENT_BINARY_DIR}/${target_name}_version.rc")
+        configure_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/windows_version.rc.in"
+            "${resource_output}"
+            @ONLY
+        )
+        set(${output_variable} "${resource_output}" PARENT_SCOPE)
+    endfunction()
+
+    mc_dlss_configure_version_resource(
+        mc_dlss_bootstrap
+        mc_dlss_bootstrap.dll
+        "MC DLSS native bootstrap"
+        MC_DLSS_BOOTSTRAP_VERSION_RESOURCE
+    )
+    mc_dlss_configure_version_resource(
+        mc_dlss_native
+        mc_dlss_native.dll
+        "MC DLSS native rendering bridge"
+        MC_DLSS_NATIVE_VERSION_RESOURCE
+    )
+endif()
 
 add_library(mc_dlss_probe_support STATIC
     include/d3d12_probe_report.h
@@ -82,6 +114,7 @@ if (WIN32)
     add_library(mc_dlss_bootstrap SHARED
         include/native_bootstrap.h
         src/native_bootstrap.cpp
+        ${MC_DLSS_BOOTSTRAP_VERSION_RESOURCE}
     )
     target_include_directories(mc_dlss_bootstrap PRIVATE include ${JNI_INCLUDE_DIRS})
     target_compile_options(mc_dlss_bootstrap PRIVATE /EHsc)
@@ -275,6 +308,7 @@ endif()
 add_library(mc_dlss_native SHARED
     include/mc_dlss_native.h
     src/mc_dlss_native.cpp
+    ${MC_DLSS_NATIVE_VERSION_RESOURCE}
 )
 
 if (FIDELITYFX_ROOT)

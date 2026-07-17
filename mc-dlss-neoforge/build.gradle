@@ -107,6 +107,10 @@ tasks.register("windowsX64DistributionJar", Jar) {
 }
 
 def fsr3NativeDirectory = rootProject.file("build/native-fsr3/Release")
+def fsr3ProjectNativeFiles = [
+        "mc_dlss_bootstrap.dll",
+        "mc_dlss_native.dll"
+]
 def fsr3RuntimeFiles = [
         "amd_fidelityfx_loader_dx12.dll",
         "amd_fidelityfx_upscaler_dx12.dll",
@@ -116,17 +120,15 @@ def generatedFsr3Bundle = layout.buildDirectory.dir(
         "generated/fsr3-native-bundle/native/windows-x86_64")
 
 tasks.register("generateWindowsX64Fsr3NativeBundle") {
-    inputs.files(nativeBundleFiles.collect { name ->
-        name == "mc_dlss_bootstrap.dll" || name == "mc_dlss_native.dll"
-                ? new File(fsr3NativeDirectory, name)
-                : new File(nativeReleaseDirectory, name)
-    } + fsr3RuntimeFiles.collect { new File(fsr3NativeDirectory, it) })
+    inputs.files((fsr3ProjectNativeFiles + fsr3RuntimeFiles).collect {
+        new File(fsr3NativeDirectory, it)
+    })
     outputs.dir(generatedFsr3Bundle)
     doLast {
         File output = generatedFsr3Bundle.get().asFile
         project.delete(output)
         output.mkdirs()
-        def allFiles = nativeBundleFiles + fsr3RuntimeFiles
+        def allFiles = fsr3ProjectNativeFiles + fsr3RuntimeFiles
         def digest = { File file ->
             def md = java.security.MessageDigest.getInstance("SHA-256")
             file.withInputStream { stream ->
@@ -141,11 +143,7 @@ tasks.register("generateWindowsX64Fsr3NativeBundle") {
         def manifestLines = ["bundle.version=${project.version}-fsr3-experimental",
                              "files=${allFiles.join(',')}"]
         allFiles.each { name ->
-            File source = (name == "mc_dlss_bootstrap.dll"
-                    || name == "mc_dlss_native.dll"
-                    || fsr3RuntimeFiles.contains(name))
-                    ? new File(fsr3NativeDirectory, name)
-                    : new File(nativeReleaseDirectory, name)
+            File source = new File(fsr3NativeDirectory, name)
             if (!source.isFile()) throw new GradleException("Missing FSR3 native file: ${source}")
             project.copy { from source; into output }
             manifestLines << "file.${name}.length=${source.length()}"
@@ -165,4 +163,8 @@ tasks.register("windowsX64Fsr3ExperimentalJar", Jar) {
     from project(":mc-dlss-core").sourceSets.main.output
     from project(":mc-dlss-debug").sourceSets.main.output
     from(layout.buildDirectory.dir("generated/fsr3-native-bundle"))
+    into("META-INF") {
+        from rootProject.file("LICENSE")
+        from rootProject.file("THIRD_PARTY_NOTICES.md")
+    }
 }

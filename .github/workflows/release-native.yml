@@ -1,0 +1,149 @@
+name: Release native FSR3 bridge
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  FIDELITYFX_REPOSITORY: GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
+  FIDELITYFX_COMMIT: 60f4ea81909200d8542eca14dccb2628b763a9a3
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out MC DLSS Prototype
+        uses: actions/checkout@v4
+
+      - name: Check out pinned FidelityFX SDK 2.3.0
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FIDELITYFX_REPOSITORY }}
+          ref: ${{ env.FIDELITYFX_COMMIT }}
+          path: third_party/FidelityFX-SDK
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") {
+            "${{ github.ref_name }}" -replace '^v', ''
+          } else {
+            "0.1.0-alpha.1-dev.${{ github.run_number }}"
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Configure FSR3-only native build
+        shell: pwsh
+        run: |
+          cmake -S mc-dlss-native -B build/native-release -A x64 `
+            -DFIDELITYFX_ROOT="${{ github.workspace }}/third_party/FidelityFX-SDK/Kits/FidelityFX" `
+            -DMC_DLSS_VERSION="${{ steps.version.outputs.value }}" `
+            -DSTREAMLINE_ROOT=
+
+      - name: Build project-authored DLLs
+        shell: pwsh
+        run: |
+          cmake --build build/native-release --config Release --parallel `
+            --target mc_dlss_bootstrap mc_dlss_native
+
+      - name: Verify metadata and upstream signatures
+        shell: pwsh
+        run: |
+          $release = "build/native-release/Release"
+          foreach ($name in @("mc_dlss_bootstrap.dll", "mc_dlss_native.dll")) {
+            $item = Get-Item "$release/$name"
+            if ($item.VersionInfo.ProductName -ne "MC DLSS Prototype") {
+              throw "$name has incorrect ProductName metadata"
+            }
+            if ($item.VersionInfo.ProductVersion -ne "${{ steps.version.outputs.value }}") {
+              throw "$name has incorrect ProductVersion metadata"
+            }
+          }
+
+          $amdRoot = "third_party/FidelityFX-SDK/Kits/FidelityFX/signedbin"
+          foreach ($name in @(
+            "amd_fidelityfx_loader_dx12.dll",
+            "amd_fidelityfx_upscaler_dx12.dll",
+            "amd_fidelityfx_framegeneration_dx12.dll"
+          )) {
+            $signature = Get-AuthenticodeSignature "$amdRoot/$name"
+            if ($signature.Status -ne "Valid") {
+              throw "$name does not have a valid upstream Authenticode signature"
+            }
+          }
+
+      - name: Assemble release package
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          $packageName = "mc-dlss-native-fsr3-$version-windows-x86_64"
+          $stage = "dist/$packageName"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          Copy-Item build/native-release/Release/mc_dlss_bootstrap.dll $stage
+          Copy-Item build/native-release/Release/mc_dlss_native.dll $stage
+
+          $amdRoot = "third_party/FidelityFX-SDK/Kits/FidelityFX/signedbin"
+          Copy-Item "$amdRoot/amd_fidelityfx_loader_dx12.dll" $stage
+          Copy-Item "$amdRoot/amd_fidelityfx_upscaler_dx12.dll" $stage
+          Copy-Item "$amdRoot/amd_fidelityfx_framegeneration_dx12.dll" $stage
+
+          Copy-Item LICENSE "$stage/MC-DLSS-LICENSE.txt"
+          Copy-Item THIRD_PARTY_NOTICES.md $stage
+          Copy-Item third_party/FidelityFX-SDK/docs/license.md "$stage/AMD-FIDELITYFX-LICENSE.md"
+          Copy-Item third_party/FidelityFX-SDK/3rdpartynotice.md "$stage/AMD-THIRD-PARTY-NOTICE.md"
+
+          @{
+            project = "MC DLSS Prototype"
+            version = $version
+            sourceRepository = "${{ github.server_url }}/${{ github.repository }}"
+            sourceCommit = "${{ github.sha }}"
+            fidelityFxRepository = "https://github.com/${{ env.FIDELITYFX_REPOSITORY }}"
+            fidelityFxCommit = "${{ env.FIDELITYFX_COMMIT }}"
+            signingState = "project DLLs unsigned; AMD DLLs retain upstream signatures"
+          } | ConvertTo-Json | Set-Content "$stage/PROVENANCE.json" -Encoding utf8
+
+          Get-ChildItem $stage -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content "$stage/SHA256SUMS.txt" -Encoding ascii
+
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/$packageName.zip"
+          $archiveHash = (Get-FileHash "dist/$packageName.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$archiveHash  $packageName.zip" | Set-Content "dist/$packageName.zip.sha256" -Encoding ascii
+
+      - name: Upload unsigned build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-dlss-native-fsr3-${{ steps.version.outputs.value }}-windows-x86_64
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub prerelease
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          $packageName = "mc-dlss-native-fsr3-$version-windows-x86_64"
+          gh release create "${{ github.ref_name }}" `
+            "dist/$packageName.zip" "dist/$packageName.zip.sha256" `
+            --title "MC DLSS Prototype ${{ github.ref_name }}" `
+            --notes-file docs/releases/v0.1.0-alpha.1.md `
+            --prerelease `
+            --verify-tag
