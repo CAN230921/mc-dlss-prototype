@@ -32,8 +32,11 @@ if (-not $fabric.entrypoints.client -or $fabric.entrypoints.client[0] -ne "dev.m
 }
 
 $fabricBuildText = Get-Content -Raw $fabricBuild
-if ($fabricBuildText -notmatch 'java\.library\.path=.*build/native/Release') {
-    throw "Fabric dev client must add build/native/Release to java.library.path"
+if ($fabricBuildText -notmatch 'rootProject\.file\("build/native/Release"\)') {
+    throw "Fabric dev client must default to build/native/Release"
+}
+if ($fabricBuildText -notmatch 'vmArg\s+"-Djava\.library\.path=\$\{nativeDirectory\.absolutePath\}"') {
+    throw "Fabric dev client must add the selected native directory to java.library.path"
 }
 
 $neoForge = Get-Content -Raw $neoForgeMetadata
