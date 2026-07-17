@@ -1,5 +1,7 @@
 # MC DLSS Prototype
 
+[简体中文](README.zh-CN.md) | English
+
 Experimental Windows rendering bridge for Minecraft Java Edition 1.21.1. The
 project connects Iris/Sodium render targets to D3D12 upscalers and explores
 DLSS Super Resolution, AMD FidelityFX Super Resolution 3, and frame generation.
