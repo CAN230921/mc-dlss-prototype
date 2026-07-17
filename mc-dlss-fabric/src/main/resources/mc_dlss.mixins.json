@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "dev.mcdlss.fabric.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "access.MinecraftClientFramebufferAccessor",
+    "GameRendererWorldFramebufferMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,47 @@
+# Build systems and IDEs
+.gradle/
+**/build/
+out/
+.idea/
+.vscode/
+*.user
+
+# Local Minecraft instances and test data
+**/run/
+work/
+backups/
+outputs/
+crash-reports/
+logs/
+saves/
+screenshots/
+*.log
+hs_err_pid*
+
+# Locally acquired SDKs and native build products
+third_party/
+tools/
+*.class
+*.dll
+*.exe
+*.exp
+*.ilk
+*.lib
+*.obj
+*.pdb
+
+# Signing material and local configuration
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.pvk
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

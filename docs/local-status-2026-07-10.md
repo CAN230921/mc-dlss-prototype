@@ -1,0 +1,232 @@
+# Local Status 2026-07-10
+
+## Verified Locally
+
+- Java runtime: `21.0.10`
+- Java compiler: `javac 21.0.10`
+- Git: `2.55.0.windows.2`
+- Visual Studio Build Tools: `17.14.37411.7`
+- Visual Studio CMake: `3.31.6-msvc6`
+- Project-local Gradle: `9.6.1`
+- GPU: `NVIDIA GeForce RTX 4070 Laptop GPU`
+- NVIDIA driver: `610.62`
+- GPU memory: `8188 MiB`
+- Windows version string: `Microsoft Windows [Version 10.0.26200.8737]`
+- Vulkan SDK: `1.4.350.0`
+- Streamline SDK/sample: `v2.12.0`
+
+## Project Checks
+
+- Core Java contract self-test compiles and runs.
+- Native probe CLI self-test compiles and runs.
+- All current Java module sources compile with `javac`.
+- JNI header generation for `NativeLibraryBridge` succeeds.
+- Default native probe CLI reports `available=false` and `version=not-loaded` when `mc_dlss_native.dll` is absent.
+- `scripts/verify-java.ps1` runs successfully.
+- `scripts/probe-native.ps1` reports `available=false` until the native DLL is built.
+- `scripts/configure-native.ps1` builds `build/native/Release/mc_dlss_native.dll` through Visual Studio Build Tools.
+- `scripts/probe-native.ps1 .\build\native\Release\mc_dlss_native.dll` reports `available=true`.
+- `scripts/gradle-local.ps1 build --console=plain` reports `BUILD SUCCESSFUL`.
+- `scripts/gradle-local.ps1 build --console=plain --no-daemon` reports `BUILD SUCCESSFUL` when run outside the managed sandbox after the JDK jar-classpath access check below.
+- NVIDIA `Streamline_Sample` configures and builds in Release.
+- `StreamlineSample.exe -d3d12 -DLSS_mode 3 -maxFrames 240 -logToFile -sllog` exits with code `0`.
+- `work/upstream/Streamline_Sample/_bin/log.txt` line `1098` reports `DLSS is supported on this system`.
+- Milestone 2 render-path investigation pins Iris `1.21.1` at `eb7afb99f747cc8ed5ee4072119539035d33cefd`.
+- Milestone 2 render-path investigation pins Sodium `mc1.21.1-0.8.12-beta.2` at `ec15afd7c85f850552577739eb30858faea1e592`.
+- Milestone 2 render-path investigation pins Streamline `v2.12.0` at `e8aaa6eaac968711fb62473d4ae8256dde20919b`.
+- `docs/milestone-2-render-path-investigation.md` records that direct DLSS SR integration is blocked by the current OpenGL backend and recommends a D3D12/Vulkan renderer-backend spike or fork.
+- `mc-dlss-core` now exposes `DlssBackendDiagnostic.currentIrisSodiumOpenGlBlocked()` so loaders/debug UI can report the OpenGL backend blocker without reaching into renderer-specific code.
+- `mc-dlss-debug` snapshots now carry the core backend diagnostic.
+- Milestone 3A diagnostic surface is present: `DlssDebugSnapshotFactory.fromProbe(...)` builds a normalized debug snapshot from native probe and backend diagnostic state.
+- Fabric and NeoForge placeholder adapters now expose `debugSnapshot()` with the current OpenGL backend blocker and native probe status.
+- `scripts/verify-java.ps1` now runs smoke tests for core, debug, Fabric adapter, and NeoForge adapter contracts.
+- `scripts/verify-java.ps1` now uses a fresh per-run output directory and fails immediately when `javac` or a smoke test fails.
+- Milestone 3B loader dev skeleton is present:
+  - Fabric module applies Fabric Loom `1.17.13`, targets Minecraft `1.21.1`, Yarn `1.21.1+build.3`, and Fabric Loader `0.19.3`.
+  - NeoForge module applies ModDevGradle `2.0.141` and targets NeoForge `21.1.234`.
+  - Fabric metadata points at `dev.mcdlss.fabric.McDlssFabricMod`.
+  - NeoForge metadata uses `javafml` and points at `dev.mcdlss.neoforge.McDlssNeoForgeMod` through `@Mod("mc_dlss")`.
+  - Both runtime entrypoints print `LoaderStartupDiagnostics.format(...)` with the current `debugSnapshot()` state.
+- `scripts/verify-loader-metadata.ps1` validates Fabric and NeoForge metadata.
+- `scripts/gradle-local.ps1 build --console=plain --no-daemon` reports `BUILD SUCCESSFUL` after loader plugins and Minecraft dependencies are resolved.
+- `gradle.properties` includes `-Dhttps.protocols=TLSv1.2` because Java/Gradle downloads from Fabric Maven hit TLS `Tag mismatch` without it in this environment.
+- Fabric dev client `:mc-dlss-fabric:downloadAssets` reports `UP-TO-DATE`.
+- Milestone 3C client overlay compiles for both loaders:
+  - `DlssOverlayLines.fromSnapshot(...)` produces compact HUD text from the shared debug snapshot.
+  - Fabric client entrypoint `McDlssFabricClientMod` registers a `HudRenderCallback` and draws the snapshot lines.
+  - NeoForge `McDlssNeoForgeClientOverlay` registers a GUI layer above `VanillaGuiLayers.DEBUG_OVERLAY` and draws the same snapshot lines.
+  - Fabric API `0.116.13+1.21.1` is configured for the HUD callback.
+- Fabric dev client launches with Minecraft `1.21.1`, Fabric Loader `0.19.3`, and `mc_dlss 0.1.0-SNAPSHOT`.
+- Fabric dev client now adds `build/native/Release` to `java.library.path`, allowing `mc_dlss_native.dll` to load during `runClient`.
+- Fabric dev client log at `work/run-logs/fabric-runClient-native.log` reports:
+  - `nativeAvailable=true`
+  - `nativeVersion=mc-dlss-native/0.1.0`
+  - `backend=OPENGL`
+  - `resourcePath=BLOCKED_UNSUPPORTED_BACKEND`
+  - `dlssReady=false`
+  - message: current Iris/Sodium OpenGL resources are incompatible with Streamline DLSS SR's D3D12/Vulkan resource and command-context requirements.
+- Fabric dev-client visual evidence is captured at `outputs/fabric-dev-client-overlay-window-2026-07-10.png`; the screenshot shows the in-game HUD overlay with native loaded, OpenGL backend blocked, and DLSS readiness false.
+- Milestone 4A D3D12 resource probe is implemented as a project-owned native executable:
+  - `build/native/Release/mc_dlss_resource_probe.exe` selects the hardware adapter `NVIDIA GeForce RTX 4070 Laptop GPU`.
+  - It creates a D3D12 device, direct command queue, command allocator, command list, fence, and completion event.
+  - It creates and validates 1280 x 720 input color, depth, and motion-vector textures plus a 1920 x 1080 output color texture.
+  - It clears the render-target and depth resources, submits the command list, and confirms completion through the fence.
+  - `scripts/configure-native.ps1` now runs two CTest tests: `d3d12_probe_report` and `d3d12_resource_probe`; both pass.
+  - `scripts/probe-d3d12-resources.ps1` validates the schema and writes `outputs/d3d12-resource-probe-2026-07-10.json`.
+  - The observed report has `success=true`, `backend=D3D12`, all four resources true, and `commandSubmissionCompleted=true`.
+- Post-Milestone-4A regressions pass: Java self-tests, loader metadata verification, JNI native probe, native CTest, and the complete Gradle build (`BUILD SUCCESSFUL`).
+- Milestone 4B Streamline DLSS evaluation is implemented and verified on 2026-07-11:
+  - `mc_dlss_streamline_probe.exe` is an optional target enabled only by `STREAMLINE_ROOT`; the default JNI and 4A build remains SDK-independent.
+  - The target uses Streamline `2.12.0` production DLLs and project GUID `7a7d47b1-8f6f-4bf4-b9d1-cc41ef57f56e` with `applicationId=0`.
+  - Streamline accepts the custom project identity and maps it to an NGX CMS identity without using the NVIDIA sample application ID.
+  - The selected adapter is `NVIDIA GeForce RTX 4070 Laptop GPU`, and `slIsFeatureSupported` reports DLSS SR support.
+  - Quality-mode optimal settings are 1280 x 720 input for 1920 x 1080 output.
+  - Streamline accepts the D3D12 device, DLSS options, deterministic constants, and input color/output color/depth/motion-vector tags.
+  - `slEvaluateFeature(sl::kFeatureDLSS, ...)` returns `eOk`; the command list completes on the GPU; `slFreeResources` and `slShutdown` return `eOk`.
+  - `scripts/configure-native-streamline.ps1` builds the optional target and passes four CTest tests.
+  - `scripts/probe-streamline-dlss.ps1` validates the complete report and key log evidence.
+  - Machine-readable evidence is at `outputs/streamline-dlss-probe-2026-07-11.json`; Streamline evidence is at `outputs/streamline-logs/sl.log`.
+- Milestone 4C OpenGL-D3D12 interop is implemented and verified on 2026-07-11:
+  - `mc_dlss_gl_d3d12_interop_probe.exe` creates a hidden WGL context on `NVIDIA GeForce RTX 4070 Laptop GPU/PCIe/SSE2` with OpenGL `4.6.0 NVIDIA 610.62`.
+  - The driver exposes `GL_EXT_memory_object`, `GL_EXT_memory_object_win32`, `GL_EXT_semaphore`, and `GL_EXT_semaphore_win32`, and every required entry point loads.
+  - D3D12 creates a shared 64 x 64 `DXGI_FORMAT_R8G8B8A8_UNORM` texture and shared fence on `NVIDIA GeForce RTX 4070 Laptop GPU`.
+  - OpenGL imports the D3D12 texture and fence, writes a deterministic RGBA pattern, and signals fence value 1.
+  - D3D12 waits for value 1, copies the shared texture to a readback buffer, returns it to common state, and signals value 2.
+  - OpenGL waits for value 2, and the complete D3D12 readback matches the OpenGL pattern.
+  - `scripts/configure-native.ps1` passes five CTest tests, including the pure interop report test and real GPU interop probe.
+  - `scripts/probe-gl-d3d12-interop.ps1` independently validates every report stage and writes `outputs/gl-d3d12-interop-probe-2026-07-11.json`.
+- Post-Milestone-4C checks on 2026-07-11:
+  - Seven Java self-tests pass.
+  - Loader metadata verification passes.
+  - JNI probing reports `available=true` and `mc-dlss-native/0.1.0`.
+  - The complete Gradle build succeeds outside the managed sandbox with 14 actionable tasks up to date.
+  - The Streamline-enabled build compiles all targets, and its first five CTest tests pass.
+  - The current Streamline DLSS rerun completes evaluation and reaches `slFreeResources`, but then remains inside NVIDIA NGX shutdown past five minutes. The earlier successful 4B JSON remains valid historical evidence; this rerun is not recorded as a passing regression.
+- Milestone 4D-A live Minecraft OpenGL context diagnostic is implemented and verified on 2026-07-11:
+  - The Fabric HUD callback executes the probe once on Minecraft's render thread and caches the immutable result.
+  - Minecraft reports OpenGL `3.2.0 NVIDIA 610.62` on `NVIDIA GeForce RTX 4070 Laptop GPU/PCIe/SSE2` from vendor `NVIDIA Corporation`.
+  - `GL_EXT_memory_object`, `GL_EXT_memory_object_win32`, `GL_EXT_semaphore`, and `GL_EXT_semaphore_win32` are all available in Minecraft's live context.
+  - The OpenGL device LUID is `e139010000000000`.
+  - The native JNI D3D12 adapter LUID is `e139010000000000`.
+  - The live result records `adapterLuidMatched=true` and `interopPrerequisitesReady=true`.
+  - The existing backend result remains `BLOCKED_UNSUPPORTED_BACKEND` with `dlss-ready=false`; 4D-A does not claim shared-resource import or DLSS evaluation inside Minecraft.
+  - Runtime log evidence is at `work/run-logs/fabric-runClient-live-gl-2026-07-11.log`.
+  - Visual evidence is at `outputs/fabric-live-gl-interop-overlay-2026-07-11.png`.
+- Post-Milestone-4D-A checks pass:
+  - Nine Java self-tests pass, including native adapter identity and Fabric live-context snapshot coverage.
+  - The default native suite passes six CTest tests, including adapter LUID formatting and the real 4C GPU interop probe.
+  - Loader metadata verification and the 4C report verifier pass.
+  - The complete Gradle build reports `BUILD SUCCESSFUL` with 14 actionable tasks.
+- Milestone 4D-B live Minecraft shared-resource interop is implemented and verified on 2026-07-11:
+  - The Fabric render-thread probe creates one native 64 x 64 `DXGI_FORMAT_R8G8B8A8_UNORM` D3D12 session after 4D-A readiness.
+  - Minecraft OpenGL imports the shared texture and D3D12 fence, uploads the deterministic RGBA pattern, and signals fence value 1.
+  - D3D12 waits for value 1, copies the texture to a row-pitched readback buffer, returns the texture to common state, and signals value 2.
+  - Minecraft OpenGL completes the value-2 wait, and native verification matches every logical pixel.
+  - The HUD and log record all stages true, `resourcesReleased=true`, and `success=true`; Minecraft continues rendering after cleanup.
+  - Runtime evidence is at `outputs/fabric-live-shared-resource-2026-07-11.log`.
+  - Visual evidence is at `outputs/fabric-live-shared-resource-overlay-2026-07-11.png`.
+- Post-Milestone-4D-B checks pass:
+  - Ten Java self-tests pass, including deterministic pattern and non-null empty semaphore-buffer barrier coverage.
+  - The default native suite passes eight CTest tests, including live session lifecycle and real 4C GPU interop.
+  - Loader metadata verification and the complete Gradle build pass.
+  - The known optional Streamline/NGX shutdown regression was not rerun.
+- Milestone 4D-C pre-HUD world-color capture is implemented and verified on 2026-07-11:
+  - Fabric runs one capture from `WorldRenderEvents.END`, after world rendering and before hand/GUI rendering.
+  - The 854 x 480 Minecraft main framebuffer is linearly blitted into a second imported 64 x 64 shared RGBA8 texture.
+  - OpenGL reports non-uniform, non-black captured content.
+  - D3D12 completes the value-1/value-2 exchange and row-pitched readback inspection.
+  - OpenGL and D3D12 produce the identical FNV-1a hash `dddc9070aef55428`.
+  - The result records framebuffer, blit, content, submit, wait, fingerprint, release, and `success` fields all true.
+  - Minecraft continues rendering after cleanup; runtime evidence is at `outputs/fabric-world-color-capture-2026-07-11.log` and visual evidence is at `outputs/fabric-world-color-capture-overlay-2026-07-11.png`.
+- Post-Milestone-4D-C checks pass:
+  - Thirteen Java self-tests pass, including known FNV values, content analysis, snapshot gating, and overlay formatting.
+  - The default native suite passes eight CTest tests, including padded-row fingerprint coverage and the real 4C GPU interop probe.
+  - Loader metadata verification and the complete Gradle build pass.
+- Milestone 4D-D persistent full-resolution color interop is implemented and verified on 2026-07-11:
+  - Fabric keeps two 854 x 480 shared RGBA8 texture/fence sessions alive and alternates them for 120 world frames.
+  - Both slots complete 60 uses; OpenGL and D3D12 hashes match on every accepted frame, with 119 observed frame-hash changes.
+  - The measured synchronous round trip averages `9.005 ms` with a `21.939 ms` maximum in the final run.
+  - Both sessions remain allocated for 30 additional frames and then release successfully.
+  - The full-resolution failure was traced to a padded-row D3D12 Map range that included nonexistent trailing padding on the last row. The range now ends at the last logical pixel, with a regression test for the 854-pixel row layout.
+  - Persistent JNI inspection now reports ready, invalid-request, timeout, missing-session, and exception states with fence diagnostics.
+  - OpenGL read/draw framebuffer and texture bindings are restored after creating the persistent slots.
+  - Runtime evidence is at `outputs/fabric-persistent-full-resolution-color-2026-07-11.log`; the completion overlay was visually verified through the live client window.
+- Post-Milestone-4D-D checks pass:
+  - Fifteen Java self-tests pass.
+  - The default native suite passes all eight CTest tests.
+  - Fabric compilation succeeds, and the final live run reaches `frames=120/120`, `retained=30/30`, `slotAUses=60`, `slotBUses=60`, and `resourcesReleased=true`.
+- Milestone 4D-E persistent full-resolution color and depth interop is implemented and verified on 2026-07-11:
+  - Each of two frame slots owns shared `RGBA8` color, shared `R32_FLOAT` hardware-depth data, and one shared fence.
+  - Minecraft's depth attachment is sampled with an unfiltered GLSL 150 `texelFetch` pass before HUD rendering.
+  - One semaphore exchange and one D3D12 command list transfer color and depth together per slot use.
+  - The final 854 x 480 run completes `120/120` frames, A/B `60/60` uses, `30/30` retained frames, and releases every GL/D3D12 resource.
+  - Color and depth hashes each change 119 times. Final color hashes match at `e1487ddb0dd684d7`; final depth hashes match at `b1c1aa812bce0d25`.
+  - All 409,920 depth samples are finite and within `[0,1]`; 303,338 are scene samples and 106,582 are far/background samples. The observed range is `0.9399742..1.0`.
+  - The synchronous paired bridge averages `10.166 ms` and peaks at `66.689 ms`; these are diagnostic timings, not production performance claims.
+  - Runtime evidence is at `outputs/fabric-persistent-full-resolution-color-depth-2026-07-11.log`.
+- Post-Milestone-4D-E checks pass:
+  - Nineteen Java self-tests pass.
+  - The default native suite passes all ten CTest tests, including depth row-pitch and two-texture frame-session coverage.
+  - The complete Gradle build succeeds and previous live color paths remain green.
+- Milestone 4D-F camera motion and temporal constants are implemented and verified on 2026-07-11:
+  - Each persistent A/B slot now carries shared `RGBA8` color, `R32_FLOAT` depth, and `RG16_FLOAT` pixel-space camera motion under one fence.
+  - Fabric freezes current projection/view matrices at `WorldRenderEvents.END`, retains only fully accepted frames as temporal history, and forces zero motion plus `reset=true` after startup or resize.
+  - The motion shader reconstructs current clip coordinates from hardware depth, applies `clipToPrevClip`, and writes bounded current-to-previous displacement in render-pixel units.
+  - Streamline-compatible constants include current/inverse projection, both cross-frame clip transforms, camera position/basis, derived near/far/FOV, zero jitter, and `mvecScale={1/width,1/height}`.
+  - The 854 x 480 acceptance run reaches `120/120` frames, A/B `60/60`, `30/30` retention, and final release.
+  - All 409,920 final motion vectors are finite; 303,537 are nonzero and zero are out of bounds. Both stationary and camera-motion phases are observed, with one reset frame.
+  - Motion hashes change 119 times and final OpenGL/D3D12 hashes match at `6ebdde4d158cd056`. Color and depth hashes also change 119 times.
+  - The synchronous three-resource bridge averages `34.240 ms` and peaks at `110.395 ms`; these are diagnostic readback timings, not production performance claims.
+  - Runtime evidence is at `outputs/fabric-persistent-camera-motion-2026-07-11.log`.
+- Post-Milestone-4D-F checks pass:
+  - Twenty-six Java self-tests pass, including reprojection, temporal constants, half-float motion fingerprints, JNI array decoding, shader source, and success gating.
+  - The default native suite passes all eleven CTest tests.
+  - All four persistent-motion JNI exports are present with unmangled names.
+  - The complete Gradle build succeeds and Minecraft is closed after acceptance.
+- Milestone 4D-G live DLSS presentation is implemented and verified on 2026-07-11:
+  - Minecraft keeps its 854 x 480 main framebuffer at native resolution while `GameRenderer.renderWorld` is redirected to a persistent 569 x 320 framebuffer selected by Streamline Quality mode.
+  - Two A/B slots share FP16 color, R32F depth, RG16F camera motion, FP16 output, and timeline fences between Minecraft OpenGL and D3D12.
+  - Streamline evaluates DLSS every accepted frame; OpenGL waits for the output, restores the original main framebuffer, and composites the exact 854 x 480 result before hand/HUD rendering.
+  - The first world-loading frame has a zero FOV multiplier and non-finite projection. It is handled as a bounded transitional frame: one linear fallback is presented, temporal history resets, and the Streamline session remains alive.
+  - The successful run reaches the 30-frame gate, `120/120` validated frames, A/B `60/60`, and `30/30` retained frames with `ready=true`.
+  - Final OpenGL/D3D12 FP16 output hashes match at `6308c60e71394a01`; all 1,639,680 channels are finite, all 409,920 pixels are non-black, output is non-uniform, and 149 hash changes are observed.
+  - Synchronous validation averages `25.295 ms` and peaks at `154.461 ms`; readbacks and full waits make these correctness measurements, not production performance claims.
+  - Failure injection on evaluation frame 2 restores the main framebuffer, presents a same-frame linear fallback, releases GL/D3D12/DLSS resources, and records `failureStage=INJECTED_EVALUATE`, `resourcesReleased=true`.
+  - Success evidence is at `outputs/fabric-live-dlss-presentation-2026-07-11.log`; fallback evidence is at `outputs/fabric-live-dlss-fallback-2026-07-11.log`.
+- Post-Milestone-4D-G checks:
+  - Java self-tests include live contracts, bridge layouts, mixin package boundaries, startup-frame retry policy, output validation, and presentation gating.
+  - The default native suite passes 13/13 CTest tests. The Streamline suite passes 15/15 tests when the legacy standalone shutdown probe is excluded; real runtime and consecutive two-frame DLSS evaluation tests pass.
+  - The legacy standalone `streamline_dlss_probe` remains excluded because its final `slShutdown` reproducibly stalls in NVIDIA NGX. Minecraft calls `slFreeResources` and intentionally retains process-global Streamline state until exit.
+- Milestone 4D-H pipelined presentation is implemented and verified on 2026-07-11:
+  - The first 30 accepted frames retain the synchronous GL/D3D12 fingerprint checks. The next 300 frames use nonblocking A/B slot readiness, a GPU-queued OpenGL semaphore wait, and no D3D12 or OpenGL output readback.
+  - A periodic validation frame after the 300-frame fast interval restores the full cross-API correctness check before readiness is reported.
+  - The live run reaches `state=COMPLETE`, `ready=true`, `frames=30/30`, `retained=300/300`, and balanced A/B usage at `166/165`.
+  - The final GL/D3D12 hashes match at `10316c3900daf459`; all 1,639,680 FP16 channels are finite and all 409,920 pixels are non-black.
+  - The measured average falls from `30.936 ms` at the validation gate to `3.650 ms` after the fast interval. This includes controller work but is not a complete end-to-end frame-time benchmark.
+  - Evidence is at `outputs/fabric-live-dlss-fast-pipeline-2026-07-11.log`.
+  - A later pause/window-size transition attempted a session rebuild and failed with `Native live DLSS session returned invalid data`; resize/reopen recovery remains a separate follow-up.
+- Milestone 4D-H robustness follow-up is verified on 2026-07-11:
+  - Streamline process initialization and D3D12 device registration are now retained once per process, while resized sessions recreate queues, shared textures, fences, and viewport resources on the same device.
+  - A real GPU test opens 854 x 480, releases it, and successfully reopens 960 x 540. The Minecraft client also rebuilds from 854 x 480 to 3840 x 2054 and reaches `COMPLETE ready=true` again.
+  - Minecraft repeatedly restores the window-sized OpenGL viewport during world rendering. Fabric stage callbacks now restore the current low-resolution framebuffer viewport before terrain, entities, block outline/breaking, debug, translucent, and final world passes.
+  - Runtime diagnostics confirmed `BEGIN`, `WORLD_END`, and `AFTER_RENDER_WORLD` all remain 569 x 320. User testing confirms the selected-block outline and breaking cracks now align with the actual targeted block.
+  - Final runtime evidence is at `outputs/fabric-live-dlss-viewport-resize-fix-2026-07-11.log`.
+
+## Missing Or Blocked
+
+- Standalone `cmake` package download through winget failed twice with HTTP 504, but Visual Studio's bundled CMake is installed and working.
+- `gradlew.bat build` currently fails to download `https://services.gradle.org/distributions/gradle-9.6.1-bin.zip` with HTTP 504. Use `scripts/gradle-local.ps1` until that service is reachable.
+- Global `gradle` is not installed; Gradle is installed project-locally under ignored `tools/`.
+- `choco` and `scoop` are not available from this environment.
+- `Get-CimInstance Win32_OperatingSystem` is blocked with access denied.
+- `gradlew.bat` still depends on Gradle distribution download availability; project-local Gradle is the reliable path for now.
+- The current Codex sandbox PATH may not see Git immediately after installation; use `C:\Program Files\Git\cmd\git.exe` if plain `git` is not found.
+- Current Iris/Sodium OpenGL resources are not compatible with Streamline's required D3D/Vulkan native resource and command-buffer contract.
+- The managed Codex sandbox can make JDK 21.0.10 fail while closing jar classpath entries with `java.nio.file.AccessDeniedException`; rerunning the same Gradle build outside the sandbox succeeds.
+- The 2026-07-11 Streamline regression rerun currently stalls after the log line `Shutting down NGX`, even though DLSS context creation, evaluation, GPU completion, and `slFreeResources` occur first. A fresh process and a five-minute timeout reproduce the shutdown stall.
+- Loader-aware Gradle builds need network access the first time because Fabric Loom and ModDevGradle download Minecraft artifacts and mappings.
+- Milestone 3C has compile/build verification, Fabric dev-client log verification, and a cropped Minecraft-window screenshot of the in-game diagnostic overlay.
+
+## Next Practical Step
+
+Milestone 4D-H proves the validation-to-fast transition and removes per-frame diagnostic readback from steady-state presentation. The next reliability step is resize/reopen recovery; the next quality step is entity-local motion plus disocclusion/reactive-mask inputs. The vendor-neutral backend and execution-mode contracts leave room for later XeSS and FSR 3 upscaling adapters, but no XeSS, FSR 3, or frame-generation support is claimed yet.

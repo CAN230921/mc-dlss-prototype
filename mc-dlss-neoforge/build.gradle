@@ -1,0 +1,168 @@
+plugins {
+    id "net.neoforged.moddev"
+}
+
+base {
+    archivesName = "mc-dlss-neoforge"
+}
+
+neoForge {
+    version = neoforge_version
+
+    runs {
+        client {
+            client()
+            def nativeDirectory = project.hasProperty("mcDlssUseFsr3Native")
+                    ? rootProject.file("build/native-fsr3/Release")
+                    : project.hasProperty("mcDlssUseStreamlineNative")
+                            ? rootProject.file("build/native-streamline-final/Release")
+                            : rootProject.file("build/native/Release")
+            def inheritedPath = System.getenv("Path") ?: System.getenv("PATH") ?: ""
+            def runtimePath = nativeDirectory.absolutePath + File.pathSeparator + inheritedPath
+            jvmArgument "-Djava.library.path=${nativeDirectory.absolutePath}"
+            jvmArgument "-DmcDlss.experimentalDxgiPresentation=true"
+            environment "Path", runtimePath
+            environment "PATH", runtimePath
+        }
+    }
+
+    mods {
+        mc_dlss {
+            sourceSet sourceSets.main
+            sourceSet project(":mc-dlss-core").sourceSets.main
+            sourceSet project(":mc-dlss-debug").sourceSets.main
+        }
+    }
+}
+
+dependencies {
+    implementation project(":mc-dlss-core")
+    implementation project(":mc-dlss-debug")
+    def sodiumImplementation = rootProject.file(
+            "work/sodium-neoforge-0.8.12-beta.2+mc1.21.1-dev-merged.jar")
+    compileOnly files(rootProject.file(
+            "work/iris-neoforge-1.8.14-beta.1+mc1.21.1.jar"))
+    compileOnly files(sodiumImplementation)
+    if (project.hasProperty("mcDlssUseIrisRuntime")) {
+        runtimeOnly files(rootProject.file(
+                "work/iris-neoforge-1.8.14-beta.1+mc1.21.1.jar"))
+        runtimeOnly files(sodiumImplementation)
+    }
+}
+
+def nativeReleaseDirectory = rootProject.file("build/native-streamline-final/Release")
+def nativeBundleFiles = [
+        "mc_dlss_bootstrap.dll",
+        "mc_dlss_native.dll",
+        "sl.interposer.dll",
+        "sl.common.dll",
+        "sl.dlss.dll",
+        "sl.pcl.dll",
+        "nvngx_dlss.dll"
+]
+def generatedNativeBundle = layout.buildDirectory.dir(
+        "generated/native-bundle/native/windows-x86_64")
+
+tasks.register("generateWindowsX64NativeBundle") {
+    inputs.files(nativeBundleFiles.collect { new File(nativeReleaseDirectory, it) })
+    outputs.dir(generatedNativeBundle)
+    doLast {
+        File output = generatedNativeBundle.get().asFile
+        project.delete(output)
+        output.mkdirs()
+        def digest = { File file ->
+            def md = java.security.MessageDigest.getInstance("SHA-256")
+            file.withInputStream { stream ->
+                byte[] buffer = new byte[8192]
+                int count
+                while ((count = stream.read(buffer)) >= 0) {
+                    if (count > 0) md.update(buffer, 0, count)
+                }
+            }
+            md.digest().encodeHex().toString()
+        }
+        def manifestLines = ["bundle.version=${project.version}",
+                             "files=${nativeBundleFiles.join(',')}"]
+        nativeBundleFiles.each { name ->
+            File source = new File(nativeReleaseDirectory, name)
+            if (!source.isFile()) throw new GradleException("Missing native bundle file: ${source}")
+            project.copy { from source; into output }
+            manifestLines << "file.${name}.length=${source.length()}"
+            manifestLines << "file.${name}.sha256=${digest(source)}"
+        }
+        new File(output, "manifest.properties").setText(
+                manifestLines.join("\n") + "\n", "UTF-8")
+    }
+}
+
+tasks.register("windowsX64DistributionJar", Jar) {
+    dependsOn "classes", ":mc-dlss-core:classes", ":mc-dlss-debug:classes",
+            "generateWindowsX64NativeBundle"
+    archiveClassifier = "windows-x86_64"
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from sourceSets.main.output
+    from project(":mc-dlss-core").sourceSets.main.output
+    from project(":mc-dlss-debug").sourceSets.main.output
+    from(layout.buildDirectory.dir("generated/native-bundle"))
+}
+
+def fsr3NativeDirectory = rootProject.file("build/native-fsr3/Release")
+def fsr3RuntimeFiles = [
+        "amd_fidelityfx_loader_dx12.dll",
+        "amd_fidelityfx_upscaler_dx12.dll",
+        "amd_fidelityfx_framegeneration_dx12.dll"
+]
+def generatedFsr3Bundle = layout.buildDirectory.dir(
+        "generated/fsr3-native-bundle/native/windows-x86_64")
+
+tasks.register("generateWindowsX64Fsr3NativeBundle") {
+    inputs.files(nativeBundleFiles.collect { name ->
+        name == "mc_dlss_bootstrap.dll" || name == "mc_dlss_native.dll"
+                ? new File(fsr3NativeDirectory, name)
+                : new File(nativeReleaseDirectory, name)
+    } + fsr3RuntimeFiles.collect { new File(fsr3NativeDirectory, it) })
+    outputs.dir(generatedFsr3Bundle)
+    doLast {
+        File output = generatedFsr3Bundle.get().asFile
+        project.delete(output)
+        output.mkdirs()
+        def allFiles = nativeBundleFiles + fsr3RuntimeFiles
+        def digest = { File file ->
+            def md = java.security.MessageDigest.getInstance("SHA-256")
+            file.withInputStream { stream ->
+                byte[] buffer = new byte[8192]
+                int count
+                while ((count = stream.read(buffer)) >= 0) {
+                    if (count > 0) md.update(buffer, 0, count)
+                }
+            }
+            md.digest().encodeHex().toString()
+        }
+        def manifestLines = ["bundle.version=${project.version}-fsr3-experimental",
+                             "files=${allFiles.join(',')}"]
+        allFiles.each { name ->
+            File source = (name == "mc_dlss_bootstrap.dll"
+                    || name == "mc_dlss_native.dll"
+                    || fsr3RuntimeFiles.contains(name))
+                    ? new File(fsr3NativeDirectory, name)
+                    : new File(nativeReleaseDirectory, name)
+            if (!source.isFile()) throw new GradleException("Missing FSR3 native file: ${source}")
+            project.copy { from source; into output }
+            manifestLines << "file.${name}.length=${source.length()}"
+            manifestLines << "file.${name}.sha256=${digest(source)}"
+        }
+        new File(output, "manifest.properties").setText(
+                manifestLines.join("\n") + "\n", "UTF-8")
+    }
+}
+
+tasks.register("windowsX64Fsr3ExperimentalJar", Jar) {
+    dependsOn "classes", ":mc-dlss-core:classes", ":mc-dlss-debug:classes",
+            "generateWindowsX64Fsr3NativeBundle"
+    archiveClassifier = "windows-x86_64-fsr3-experimental"
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from sourceSets.main.output
+    from project(":mc-dlss-core").sourceSets.main.output
+    from project(":mc-dlss-debug").sourceSets.main.output
+    from(layout.buildDirectory.dir("generated/fsr3-native-bundle"))
+}

@@ -1,0 +1,73 @@
+plugins {
+    id "fabric-loom"
+}
+
+base {
+    archivesName = "mc-dlss-fabric"
+}
+
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    if (project.hasProperty("mcDlssUseIrisRuntime")) {
+        modRuntimeOnly "maven.modrinth:YL57xq9U:${iris_fabric_version}"
+        modRuntimeOnly "maven.modrinth:AANobbMI:${sodium_fabric_version}"
+    }
+    implementation project(":mc-dlss-core")
+    implementation project(":mc-dlss-debug")
+    include project(":mc-dlss-core")
+    include project(":mc-dlss-debug")
+}
+
+loom {
+    runs {
+        client {
+            def nativeDirectory = project.hasProperty("mcDlssUseStreamlineNative")
+                    ? rootProject.file("build/native-streamline/Release")
+                    : rootProject.file("build/native/Release")
+            vmArg "-Djava.library.path=${nativeDirectory.absolutePath}"
+            def inheritedPath = System.getenv("Path") ?: System.getenv("PATH") ?: ""
+            def runtimePath = nativeDirectory.absolutePath + File.pathSeparator + inheritedPath
+            environmentVariable "Path", runtimePath
+            environmentVariable "PATH", runtimePath
+            if (project.hasProperty("mcDlssAutoMotionTest")) {
+                vmArg "-DmcDlss.autoMotionTest=true"
+            }
+            if (project.hasProperty("mcDlssLivePresentation")) {
+                vmArg "-DmcDlss.livePresentation=true"
+            }
+            if (project.hasProperty("mcDlssLiveFailureFrame")) {
+                vmArg "-DmcDlss.liveFailureFrame=${project.property("mcDlssLiveFailureFrame")}"
+            }
+            if (project.hasProperty("mcDlssForceResetEveryFrame")) {
+                vmArg "-DmcDlss.forceResetEveryFrame=true"
+            }
+            if (project.hasProperty("mcDlssQuickPlayWorld")) {
+                programArgs "--quickPlaySingleplayer", project.property("mcDlssQuickPlayWorld")
+            }
+        }
+    }
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}

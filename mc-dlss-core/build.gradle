@@ -1,0 +1,25 @@
+tasks.register("smokeTest", JavaExec) {
+    group = "verification"
+    description = "Runs the dependency-free core contract smoke test."
+    classpath = sourceSets.main.runtimeClasspath + files("$buildDir/classes/java/testSmoke")
+    mainClass = "dev.mcdlss.core.CoreContractSelfTest"
+    dependsOn "compileJava", "compileTestSmokeJava"
+}
+
+tasks.register("nativeInteropSessionInfoSmokeTest", JavaExec) {
+    group = "verification"
+    description = "Runs the D3D12 interop session contract smoke test."
+    classpath = sourceSets.main.runtimeClasspath + files("$buildDir/classes/java/testSmoke")
+    mainClass = "dev.mcdlss.core.NativeInteropSessionInfoSelfTest"
+    dependsOn "compileJava", "compileTestSmokeJava"
+}
+
+sourceSets {
+    testSmoke {
+        java {
+            srcDir "src/testSmoke/java"
+        }
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}

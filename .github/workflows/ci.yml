@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Java contract checks
+        shell: pwsh
+        run: .\scripts\verify-java.ps1
+      - name: Loader metadata checks
+        shell: pwsh
+        run: .\scripts\verify-loader-metadata.ps1
+      - name: SDK-independent native configure and build
+        shell: pwsh
+        run: |
+          cmake -S mc-dlss-native -B build/native-ci -A x64
+          cmake --build build/native-ci --config Release --parallel

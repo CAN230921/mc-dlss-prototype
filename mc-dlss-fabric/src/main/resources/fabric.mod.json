@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "mc_dlss",
+  "version": "${version}",
+  "name": "Minecraft DLSS Prototype",
+  "description": "Experimental Iris/Sodium bridge for DLSS and FSR3 upscaling.",
+  "authors": [
+    "mc-dlss contributors"
+  ],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.mcdlss.fabric.McDlssFabricMod"
+    ],
+    "client": [
+      "dev.mcdlss.fabric.McDlssFabricClientMod"
+    ]
+  },
+  "mixins": [
+    "mc_dlss.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "fabric-api": ">=0.116.13+1.21.1",
+    "minecraft": "1.21.1",
+    "java": ">=21"
+  }
+}

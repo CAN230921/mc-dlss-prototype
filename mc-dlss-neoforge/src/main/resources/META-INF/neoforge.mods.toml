@@ -1,0 +1,29 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "MIT"
+
+[[mods]]
+modId = "mc_dlss"
+version = "${file.jarVersion}"
+displayName = "Minecraft DLSS Prototype"
+authors = "mc-dlss contributors"
+description = '''
+Experimental Iris/Sodium bridge for DLSS and FSR3 upscaling.
+'''
+
+[[mixins]]
+config = "mc_dlss.neoforge.mixins.json"
+
+[[dependencies.mc_dlss]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.234,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.mc_dlss]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "BOTH"
