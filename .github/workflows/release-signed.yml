@@ -1,0 +1,229 @@
+name: Release signed FSR3 Mod
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  FIDELITYFX_REPOSITORY: GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
+  FIDELITYFX_COMMIT: 60f4ea81909200d8542eca14dccb2628b763a9a3
+
+jobs:
+  sign-and-package:
+    if: github.ref_type == 'tag' && vars.SIGNPATH_ENABLED == 'true'
+    runs-on: windows-latest
+    environment: release-signing
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Check out pinned FidelityFX SDK 2.3.0
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FIDELITYFX_REPOSITORY }}
+          ref: ${{ env.FIDELITYFX_COMMIT }}
+          path: third_party/FidelityFX-SDK
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Resolve and validate release configuration
+        id: version
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "The workflow must run from a version tag."
+          }
+          foreach ($name in @(
+            "SIGNPATH_API_TOKEN",
+            "SIGNPATH_ORGANIZATION_ID",
+            "SIGNPATH_PROJECT_SLUG",
+            "SIGNPATH_SIGNING_POLICY_SLUG",
+            "SIGNPATH_ARTIFACT_CONFIGURATION_SLUG"
+          )) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "env:$name").Value)) {
+              throw "Missing required SignPath configuration: $name"
+            }
+          }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Configure FSR3-only native build
+        shell: pwsh
+        run: |
+          cmake -S mc-dlss-native -B build/native-fsr3 -A x64 `
+            -DFIDELITYFX_ROOT="${{ github.workspace }}/third_party/FidelityFX-SDK/Kits/FidelityFX" `
+            -DMC_DLSS_VERSION="${{ steps.version.outputs.value }}" `
+            -DSTREAMLINE_ROOT=
+
+      - name: Build project-authored DLLs
+        shell: pwsh
+        run: |
+          cmake --build build/native-fsr3 --config Release --parallel `
+            --target mc_dlss_bootstrap mc_dlss_native
+
+      - name: Stage signing input
+        shell: pwsh
+        run: |
+          $stage = "build/signpath-input"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item build/native-fsr3/Release/mc_dlss_bootstrap.dll $stage
+          Copy-Item build/native-fsr3/Release/mc_dlss_native.dll $stage
+
+          $amdRoot = "third_party/FidelityFX-SDK/Kits/FidelityFX/signedbin"
+          foreach ($name in @(
+            "amd_fidelityfx_loader_dx12.dll",
+            "amd_fidelityfx_upscaler_dx12.dll",
+            "amd_fidelityfx_framegeneration_dx12.dll"
+          )) {
+            $source = "$amdRoot/$name"
+            if ((Get-AuthenticodeSignature $source).Status -ne "Valid") {
+              throw "$name does not have a valid upstream signature."
+            }
+            Copy-Item $source $stage
+          }
+
+      - name: Upload unsigned signing input
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-input-${{ steps.version.outputs.value }}
+          path: build/signpath-input/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Submit SignPath signing request
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: build/signpath-output
+          parameters: |
+            version: ${{ toJSON(steps.version.outputs.value) }}
+
+      - name: Verify and install signed native files
+        shell: pwsh
+        run: |
+          .\scripts\verify-signpath-output.ps1 `
+            -UnsignedDirectory build/signpath-input `
+            -SignedDirectory build/signpath-output `
+            -ExpectedVersion "${{ steps.version.outputs.value }}"
+
+          foreach ($name in @(
+            "mc_dlss_bootstrap.dll",
+            "mc_dlss_native.dll",
+            "amd_fidelityfx_loader_dx12.dll",
+            "amd_fidelityfx_upscaler_dx12.dll",
+            "amd_fidelityfx_framegeneration_dx12.dll"
+          )) {
+            $matches = @(Get-ChildItem build/signpath-output -Recurse -File -Filter $name)
+            if ($matches.Count -ne 1) {
+              throw "Expected one signed output named $name, found $($matches.Count)."
+            }
+            Copy-Item $matches[0].FullName build/native-fsr3/Release/$name -Force
+          }
+
+      - name: Build signed NeoForge Mod
+        shell: pwsh
+        run: |
+          .\gradlew.bat :mc-dlss-neoforge:windowsX64Fsr3ExperimentalJar `
+            "-PmcDlssVersion=${{ steps.version.outputs.value }}" `
+            --console=plain --no-daemon --no-parallel
+
+      - name: Assemble signed release assets
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.value }}"
+          $packageName = "mc-dlss-native-fsr3-$version-windows-x86_64-signed"
+          $stage = "dist/$packageName"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          foreach ($name in @(
+            "mc_dlss_bootstrap.dll",
+            "mc_dlss_native.dll",
+            "amd_fidelityfx_loader_dx12.dll",
+            "amd_fidelityfx_upscaler_dx12.dll",
+            "amd_fidelityfx_framegeneration_dx12.dll"
+          )) {
+            Copy-Item build/native-fsr3/Release/$name $stage
+          }
+          Copy-Item LICENSE "$stage/MC-DLSS-LICENSE.txt"
+          Copy-Item THIRD_PARTY_NOTICES.md $stage
+          Copy-Item third_party/FidelityFX-SDK/docs/license.md "$stage/AMD-FIDELITYFX-LICENSE.md"
+          Copy-Item third_party/FidelityFX-SDK/3rdpartynotice.md "$stage/AMD-THIRD-PARTY-NOTICE.md"
+
+          @{
+            project = "MC DLSS Prototype"
+            version = $version
+            sourceRepository = "${{ github.server_url }}/${{ github.repository }}"
+            sourceCommit = "${{ github.sha }}"
+            fidelityFxRepository = "https://github.com/${{ env.FIDELITYFX_REPOSITORY }}"
+            fidelityFxCommit = "${{ env.FIDELITYFX_COMMIT }}"
+            signingState = "project DLLs signed by SignPath Foundation; AMD DLLs retain upstream signatures"
+            signingRequest = "${{ steps.signpath.outputs.signing-request-web-url }}"
+          } | ConvertTo-Json | Set-Content "$stage/PROVENANCE.json" -Encoding utf8
+
+          Get-ChildItem $stage -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content "$stage/SHA256SUMS.txt" -Encoding ascii
+
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/$packageName.zip"
+          $nativeHash = (Get-FileHash "dist/$packageName.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$nativeHash  $packageName.zip" | Set-Content "dist/$packageName.zip.sha256" -Encoding ascii
+
+          $mod = Get-ChildItem mc-dlss-neoforge/build/libs `
+            -Filter "mc-dlss-neoforge-$version-windows-x86_64-fsr3-experimental.jar"
+          if (@($mod).Count -ne 1) {
+            throw "Could not locate the signed NeoForge Mod JAR."
+          }
+          Copy-Item $mod.FullName "dist/mc-dlss-neoforge-$version-windows-x86_64-fsr3-signed.jar"
+          $modHash = (Get-FileHash "dist/mc-dlss-neoforge-$version-windows-x86_64-fsr3-signed.jar" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$modHash  mc-dlss-neoforge-$version-windows-x86_64-fsr3-signed.jar" |
+            Set-Content "dist/mc-dlss-neoforge-$version-windows-x86_64-fsr3-signed.jar.sha256" -Encoding ascii
+
+      - name: Upload signed release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mc-dlss-signed-${{ steps.version.outputs.value }}
+          path: |
+            dist/*.zip
+            dist/*.jar
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Publish signed GitHub prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(Get-ChildItem dist -File | Where-Object {
+            $_.Extension -in @(".zip", ".jar", ".sha256")
+          } | ForEach-Object FullName)
+          gh release view "${{ github.ref_name }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "${{ github.ref_name }}" $assets --clobber
+          } else {
+            gh release create "${{ github.ref_name }}" $assets `
+              --title "MC DLSS Prototype ${{ github.ref_name }}" `
+              --generate-notes --prerelease --verify-tag
+          }

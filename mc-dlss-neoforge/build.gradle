@@ -64,6 +64,7 @@ def generatedNativeBundle = layout.buildDirectory.dir(
         "generated/native-bundle/native/windows-x86_64")
 
 tasks.register("generateWindowsX64NativeBundle") {
+    inputs.property "version", project.version
     inputs.files(nativeBundleFiles.collect { new File(nativeReleaseDirectory, it) })
     outputs.dir(generatedNativeBundle)
     doLast {
@@ -120,6 +121,7 @@ def generatedFsr3Bundle = layout.buildDirectory.dir(
         "generated/fsr3-native-bundle/native/windows-x86_64")
 
 tasks.register("generateWindowsX64Fsr3NativeBundle") {
+    inputs.property "version", project.version
     inputs.files((fsr3ProjectNativeFiles + fsr3RuntimeFiles).collect {
         new File(fsr3NativeDirectory, it)
     })

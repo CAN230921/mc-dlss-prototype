@@ -31,3 +31,15 @@ changes each DLL's size and SHA-256 hash.
 Never commit a PFX file, private key, token PIN, cloud signing credential, or
 certificate password. CI signing should use the selected signing provider's
 short-lived identity mechanism and protected repository environments.
+
+## SignPath Foundation
+
+The prepared SignPath artifact configuration is
+[`../.signpath/artifact-configuration.xml`](../.signpath/artifact-configuration.xml).
+It signs only the two project-authored DLLs and verifies, without re-signing,
+the three AMD FidelityFX DLLs. The manually triggered
+`Release signed FSR3 Mod` workflow remains disabled until the SignPath
+Foundation application is approved and repository variables are configured.
+
+See the [Chinese setup checklist](SIGNPATH_SETUP.zh-CN.md) for the required
+SignPath project slugs, GitHub secret, protected environment, and release flow.
